@@ -15,8 +15,7 @@
 
 include ../common_defs.mk
 
-TEST_OBJS = $(OBJ_DIR)/de_main.o \
-            $(OBJ_DIR)/de_ui.o
+TEST_OBJS = $(OBJ_DIR)/test_libspio.o
 
 COMP_FLAGS_C_TEST_APP   = $(COMP_FLAGS_C)
 COMP_FLAGS_CPP_TEST_APP = $(COMP_FLAGS_CPP)

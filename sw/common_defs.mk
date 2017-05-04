@@ -39,7 +39,9 @@ OBJ_DIR = ../obj
 INC_DIR = ../lib
 TEST_DIR = ../test
 
-LIB_NAME = mcs9835
+# The library is actual handling Serial Parallel I/O.
+# Let's call it SPIO to get a short and simple name.
+LIB_NAME = spio
 LIB_BASENAME = $(OBJ_DIR)/lib${LIB_NAME}
 LIB_FILE_NAME = $(LIB_BASENAME).so
 

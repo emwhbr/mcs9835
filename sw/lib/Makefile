@@ -15,10 +15,10 @@
 
 include ../common_defs.mk
 
-LIB_OBJS = $(OBJ_DIR)/de.o \
-           $(OBJ_DIR)/de_core.o \
-           $(OBJ_DIR)/de_exception.o \
-           $(OBJ_DIR)/de_io.o
+LIB_OBJS = $(OBJ_DIR)/spio.o \
+           $(OBJ_DIR)/spio_core.o \
+           $(OBJ_DIR)/spio_exception.o \
+           $(OBJ_DIR)/spio_utility.o
 
 COMP_FLAGS_C_LIB   = $(COMP_FLAGS_C) -fPIC
 COMP_FLAGS_CPP_LIB = $(COMP_FLAGS_CPP) -fPIC
