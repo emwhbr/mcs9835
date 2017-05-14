@@ -23,14 +23,18 @@
 ************************************************************************/
 
 #include <linux/init.h>
-#include <linux/module.h>
-#include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/cdev.h>
 #include <linux/fs.h>
 
+#include <linux/pci.h>
+#include <linux/version.h>
+#include <linux/module.h>
+#include <linux/moduleparam.h>
+
 #include "mcs9835_product_info.h"
 #include "mcs9835_log.h"
+#include "mcs9835_hw.h"
 
 /****************************************************************************
  *
@@ -57,6 +61,54 @@ MODULE_PARM_DESC(loglevel, "Bitmask (32bit) enabling loglevels");
 
 /****************************************************************************
  *
+ * Function prototypes
+ *
+ ****************************************************************************/
+/* Kernel compatibility */
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(3,4,0)
+#define DEVEXIT_MARK __devexit
+#define DEVINIT_MARK __devinit
+#else 
+#define DEVEXIT_MARK 
+#define DEVINIT_MARK 
+#endif
+
+static int DEVINIT_MARK mcs9835_probe(struct pci_dev *dev, 
+				      const struct pci_device_id *id);
+
+static void DEVEXIT_MARK mcs9835_remove(struct pci_dev *dev);
+
+static int __init mcs9835_initialize(void);
+
+static void __exit mcs9835_finalize(void);
+
+/****************************************************************************
+ *
+ * PCI driver infrastructure
+ *
+ ****************************************************************************/
+/* The PCI device table, listing supported devices */
+static const struct pci_device_id mcs9835_pci_ids[] = {
+  { PCI_DEVICE(MCS9835_VENDOR_ID, MCS9835_DEVICE_ID) },
+  { 0 },
+};
+
+MODULE_DEVICE_TABLE(pci, mcs9835_pci_ids);
+
+/* Used when register driver with the PCI core */
+static struct pci_driver mcs9835_pci_driver = {
+    .name     = DRV_NAME,
+    .id_table = mcs9835_pci_ids,
+    .probe    = mcs9835_probe,
+    .remove   = mcs9835_remove,
+    /* resume, suspend are optional */
+};
+
+module_init(mcs9835_initialize);
+module_exit(mcs9835_finalize);
+
+/****************************************************************************
+ *
  * Global variables
  *
  ****************************************************************************/
@@ -77,6 +129,99 @@ struct bach_dev {
   int cnt;          /* User counter          */
   struct cdev cdev; /* Char device structure */
 };
+
+/****************************************************************************
+ *
+ * PCI core functions
+ *
+ ****************************************************************************/
+
+/****************************************************************************/
+
+/* 
+ * Initialize the device.
+ * Executed by the PCI core.
+*/
+static int DEVINIT_MARK mcs9835_probe(struct pci_dev *dev, 
+				      const struct pci_device_id *id)
+{
+  LOG(MCS_INF, "Initializing PCI device 0x%x:0x%x\n", 
+      dev->vendor, dev->device);
+
+  return 0;
+}
+
+/****************************************************************************/
+
+/* 
+ * Finalize the device.
+ * Executed by the PCI core.
+*/
+static void DEVEXIT_MARK mcs9835_remove(struct pci_dev *dev)
+{
+  LOG(MCS_INF, "Finalizing PCI device 0x%x:0x%x\n", 
+      dev->vendor, dev->device);
+}
+
+/****************************************************************************
+ *
+ * Module load/unload functions
+ *
+ ****************************************************************************/
+
+/****************************************************************************/
+
+/*
+ * Initialize this kernel module.
+ * Executed when the module is loaded.
+ */
+static int __init mcs9835_initialize(void)
+{
+  int i;
+
+  printk(KERN_INFO DRV_NAME " [Loading driver %s-%s]\n",
+	 DRV_PRODUCT_NUMBER, DRV_RSTATE);
+
+  /* Update initial loglevel list with current settings */
+  mcs_set_log_level(mcs_log_level, MCS_ENABLE);
+  if (loglevel) {
+    mcs_set_log_level(loglevel, MCS_ENABLE);
+  }
+
+  /* Display current loglevel configuration in syslog */
+  mcs_display_log_levels();
+
+  /* Test of loglevels */
+  i = 100;
+  LOG(MCS_WRN, "WRN test = 0x%08x\n", i);
+  LOG(MCS_INI, "INI test\n");
+  i = 0x1234cafe;
+  LOG(MCS_IRQ, "IRQ test = 0x%08x\n", i);
+  LOG(MCS_DBG, "DBG test\n");
+
+  /* Register driver with PCI core */
+  return pci_register_driver(&mcs9835_pci_driver);
+}
+
+/****************************************************************************/
+
+/*
+ * Finalize this kernel module.
+ * Executed when the module is unloaded.
+ */
+static void __exit mcs9835_finalize(void)
+{
+  LOG(MCS_INF, "unloading driver\n");
+
+  /* Unregister driver from PCI core */
+  pci_unregister_driver(&mcs9835_pci_driver);
+}
+
+/****************************************************************************
+ *
+ * TBD functions
+ *
+ ****************************************************************************/
 
 /*****************************************************************************
  * Read
@@ -180,26 +325,6 @@ static int bach_init(void)
   int rc, i;
   dev_t dev;
   
-  printk(KERN_INFO DRV_NAME " [Loading driver %s-%s]\n",
-	 DRV_PRODUCT_NUMBER, DRV_RSTATE);
-
-  /* Update initial loglevel list with current settings */
-  mcs_set_log_level(mcs_log_level, MCS_ENABLE);
-  if (loglevel) {
-    mcs_set_log_level(loglevel, MCS_ENABLE);
-  }
-
-  /* Display current loglevel configuration in syslog */
-  mcs_display_log_levels();
-
-  /* Test of loglevels */
-  i = 100;
-  LOG(MCS_WRN, "WRN test = 0x%08x\n", i);
-  LOG(MCS_INI, "INI test\n");
-  i = 0x1234cafe;
-  LOG(MCS_IRQ, "IRQ test = 0x%08x\n", i);
-  LOG(MCS_DBG, "DBG test\n");
-
   /* Allocate the device numbers - Dynamically */
   rc = alloc_chrdev_region(&dev, bach_minor, bach_nr_devs, "bach");
   bach_major = MAJOR(dev);
@@ -258,5 +383,5 @@ static void bach_exit(void)
   unregister_chrdev_region(dev, bach_nr_devs);
 }
 
-module_init(bach_init);
-module_exit(bach_exit);
+//module_init(bach_init);
+//module_exit(bach_exit);

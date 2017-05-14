@@ -9,16 +9,13 @@
 *                                                                      *
 ************************************************************************/
 
-#ifndef __MCS9835_PRODUCT_INFO_H__
-#define __MCS9835_PRODUCT_INFO_H__
+#include <linux/pci_ids.h>
 
-/****************************************************************************
- *
- * Product information
- *
- ****************************************************************************/
-#define DRV_NAME           "mcs9835"
-#define DRV_PRODUCT_NUMBER "MCS9835"
-#define DRV_RSTATE         "R1A01"
+#ifndef __MCS9835_HW_H__
+#define __MCS9835_HW_H__
 
-#endif // __MCS9835_PRODUCT_INFO_H__
+/* PCI */
+#define MCS9835_VENDOR_ID  PCI_VENDOR_ID_NETMOS
+#define MCS9835_DEVICE_ID  PCI_DEVICE_ID_NETMOS_9835
+
+#endif /* __MCS9835_HW_H__ */
