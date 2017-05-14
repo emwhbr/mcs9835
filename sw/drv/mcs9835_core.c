@@ -24,9 +24,42 @@
 
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/cdev.h>
 #include <linux/fs.h>
+
+#include "mcs9835_product_info.h"
+#include "mcs9835_log.h"
+
+/****************************************************************************
+ *
+ * Kernel module information
+ *
+ ****************************************************************************/
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Håkan Brolin");
+MODULE_VERSION(DRV_RSTATE);
+MODULE_DESCRIPTION("MCS9835 chipset PCI driver");
+
+/****************************************************************************
+ *
+ * Kernel module parameters
+ *
+ ****************************************************************************/
+/*
+ * loglevel: Overrides the default loglevel.
+ *           [OFF] by default
+ */
+u32 loglevel;
+module_param(loglevel, int, 0);
+MODULE_PARM_DESC(loglevel, "Bitmask (32bit) enabling loglevels");
+
+/****************************************************************************
+ *
+ * Global variables
+ *
+ ****************************************************************************/
 
 /* The global variables */
 static int bach_major;
@@ -147,7 +180,25 @@ static int bach_init(void)
   int rc, i;
   dev_t dev;
   
-  printk(KERN_ALERT "BACH: bach_init\n");
+  printk(KERN_INFO DRV_NAME " [Loading driver %s-%s]\n",
+	 DRV_PRODUCT_NUMBER, DRV_RSTATE);
+
+  /* Update initial loglevel list with current settings */
+  mcs_set_log_level(mcs_log_level, MCS_ENABLE);
+  if (loglevel) {
+    mcs_set_log_level(loglevel, MCS_ENABLE);
+  }
+
+  /* Display current loglevel configuration in syslog */
+  mcs_display_log_levels();
+
+  /* Test of loglevels */
+  i = 100;
+  LOG(MCS_WRN, "WRN test = 0x%08x\n", i);
+  LOG(MCS_INI, "INI test\n");
+  i = 0x1234cafe;
+  LOG(MCS_IRQ, "IRQ test = 0x%08x\n", i);
+  LOG(MCS_DBG, "DBG test\n");
 
   /* Allocate the device numbers - Dynamically */
   rc = alloc_chrdev_region(&dev, bach_minor, bach_nr_devs, "bach");
@@ -209,8 +260,3 @@ static void bach_exit(void)
 
 module_init(bach_init);
 module_exit(bach_exit);
-
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Håkan Brolin");
-MODULE_VERSION("R1A01");
-MODULE_DESCRIPTION("BACH - BAsic CHar module");

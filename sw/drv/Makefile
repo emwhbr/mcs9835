@@ -15,7 +15,8 @@
 
 DRIVER_NAME = mcs9835
 
-SRC_DRIVER = $(DRIVER_NAME)_core.o
+SRC_DRIVER = $(DRIVER_NAME)_core.o \
+             $(DRIVER_NAME)_log.o
 
 # ----- Kernel module build definitions
 
