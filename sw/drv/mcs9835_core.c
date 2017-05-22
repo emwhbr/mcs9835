@@ -28,6 +28,8 @@
 #include <linux/fs.h>
 
 #include <linux/pci.h>
+#include <linux/ioport.h>
+#include <linux/types.h>
 #include <linux/version.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -145,8 +147,68 @@ struct bach_dev {
 static int DEVINIT_MARK mcs9835_probe(struct pci_dev *dev, 
 				      const struct pci_device_id *id)
 {
-  LOG(MCS_INF, "Initializing PCI device 0x%x:0x%x\n", 
+  int rc;
+  int i;
+  unsigned long joe;
+
+  void __iomem *joe_p;
+
+  u8 joe_data;
+
+  LOG(MCS_INF, "initializing PCI device 0x%x:0x%x\n", 
       dev->vendor, dev->device);
+
+  /* Enable this device */
+  rc = pci_enable_device(dev);
+  if (rc) {
+    LOG(MCS_ERR, "pci_enable_device failed\n");
+    return rc;
+  }
+
+  for (i=0 ; i < 6; i++) {
+    joe = pci_resource_flags(dev, i);
+    LOG(MCS_INF, "bar(%d) - flags = 0x%lx - IO = %s\n", 
+	i, joe, (joe & IORESOURCE_IO ? "yes " : "no"));
+    joe = pci_resource_start(dev, i);
+    LOG(MCS_INF, "bar(%d) - start = 0x%lx\n", 
+	i, joe);
+    joe = pci_resource_end(dev, i);
+    LOG(MCS_INF, "bar(%d) - end   = 0x%lx\n", 
+	i, joe);
+  }
+
+  /* Request all BARs */
+  rc = pci_request_regions(dev, DRV_NAME);
+  if (rc) {
+    LOG(MCS_ERR, "pci_request_regions failed\n");
+    return rc;
+  }
+
+  // Play with BAR2
+  joe_p = pci_iomap(dev, 2, 0);
+  if (joe_p == NULL) {
+    LOG(MCS_ERR, "pci_iomap(2) failed\n");
+    return rc;
+  }  
+  for (i=0 ; i < 8; i++) {
+    joe_data = ioread8(joe_p + i);
+    LOG(MCS_INF, "bar(2) + %d = 0x%x\n", 
+	i, joe_data);
+  }
+  pci_iounmap(dev, joe_p);
+
+  // Play with BAR3
+  joe_p = pci_iomap(dev, 3, 0);
+  if (joe_p == NULL) {
+    LOG(MCS_ERR, "pci_iomap(3) failed\n");
+    return rc;
+  }  
+  for (i=0 ; i < 3; i++) {
+    joe_data = ioread8(joe_p + i);
+    LOG(MCS_INF, "bar(3) + %d = 0x%x\n", 
+	i, joe_data);
+  }
+  pci_iounmap(dev, joe_p);
 
   return 0;
 }
@@ -159,8 +221,14 @@ static int DEVINIT_MARK mcs9835_probe(struct pci_dev *dev,
 */
 static void DEVEXIT_MARK mcs9835_remove(struct pci_dev *dev)
 {
-  LOG(MCS_INF, "Finalizing PCI device 0x%x:0x%x\n", 
+  LOG(MCS_INF, "finalizing PCI device 0x%x:0x%x\n", 
       dev->vendor, dev->device);
+
+  /* Release all BARs */
+  pci_release_regions(dev);
+
+  /* Disable this device */
+  pci_disable_device(dev);  
 }
 
 /****************************************************************************
