@@ -11,7 +11,9 @@
 
 #include <linux/init.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/pci.h>
+#include <linux/fs.h>
 #include <linux/ioport.h>
 #include <linux/types.h>
 #include <linux/version.h>
@@ -21,6 +23,7 @@
 #include "mcs9835.h"
 #include "mcs9835_product_info.h"
 #include "mcs9835_log.h"
+#include "mcs9835_cdev.h"
 #include "mcs9835_hw.h"
 
 /****************************************************************************
@@ -64,6 +67,15 @@ static int DEVINIT_MARK mcs9835_probe(struct pci_dev *dev,
 				      const struct pci_device_id *id);
 static void DEVEXIT_MARK mcs9835_remove(struct pci_dev *dev);
 
+static int mcs9835_open_parport(struct inode *inode, 
+				struct file  *file);
+static int mcs9835_close_parport(struct inode *inode, 
+				 struct file  *file);
+static ssize_t mcs9835_read_parport(const struct file *file,
+				    const char __user *buf, 
+				    size_t count,
+				    loff_t *pos);
+
 static int __init mcs9835_initialize(void);
 static void __exit mcs9835_finalize(void);
 
@@ -92,8 +104,17 @@ static struct pci_driver mcs9835_pci_driver = {
     /* resume, suspend are optional */
 };
 
-module_init(mcs9835_initialize);
-module_exit(mcs9835_finalize);
+/****************************************************************************
+ *
+ * Char driver infrastructure
+ *
+ ****************************************************************************/
+struct file_operations mcs9835_fops_parport = {
+  .owner   = THIS_MODULE,
+  .open    = mcs9835_open_parport,
+  .release = mcs9835_close_parport,
+  .read    = (void *)mcs9835_read_parport,
+};
 
 /****************************************************************************
  *
@@ -195,19 +216,64 @@ static int DEVINIT_MARK mcs9835_probe(struct pci_dev *dev,
     goto probe_fail_3;
   }
 
+  /* Initialize cdev class */
+  rc = mcs9835_cdev_initialize(mcs_dev, mcs9835_dev_idx);
+  if (rc) {    
+    goto probe_fail_3;
+  }
+
+  /* Add character device UART-A */
+  rc = mcs9835_cdev_create(mcs_dev,
+			   mcs9835_dev_idx,
+			   MCS9835_CDEV_IDX_UART_A,
+			   NULL);
+  if (rc) {
+    LOG(MCS_ERR, "add character device UART-A failed\n");
+    goto probe_fail_4;
+  }
+
+  /* Add character device UART-A */
+  rc = mcs9835_cdev_create(mcs_dev,
+			   mcs9835_dev_idx,
+			   MCS9835_CDEV_IDX_UART_B,
+			   NULL);
+  if (rc) {
+    LOG(MCS_ERR, "add character device UART-B failed\n");
+    goto probe_fail_5;
+  }
+
+  /* Add character device PARPORT */
+  rc = mcs9835_cdev_create(mcs_dev,
+			   mcs9835_dev_idx,
+			   MCS9835_CDEV_IDX_PARPORT,
+			   &mcs9835_fops_parport);
+  if (rc) {
+    LOG(MCS_ERR, "add character device PARPORT failed\n");
+    goto probe_fail_6;
+  }
+
   /* Set private driver data pointer*/
   pci_set_drvdata(dev, (void *)mcs_dev);
   mcs_dev->pci_dev = dev;
 
   /* Another device has been initialized */
-  mcs_dev-> init_done = 1;
-  mcs9835_dev_idx++;
+  mcs_dev->dev_idx   = mcs9835_dev_idx++;
+  mcs_dev->init_done = 1;
   LOG(MCS_INI, "initialize PCI device %d/%d done\n",
       mcs9835_dev_idx, MCS9835_MAX_DEVICES);
 
   dump_dev_registers(mcs_dev);
 
   return 0;
+
+probe_fail_6:
+  mcs9835_cdev_destroy(mcs_dev, MCS9835_CDEV_IDX_UART_B);
+
+ probe_fail_5:
+  mcs9835_cdev_destroy(mcs_dev, MCS9835_CDEV_IDX_UART_A);
+
+ probe_fail_4:
+  mcs9835_cdev_finalize(mcs_dev);
 
  probe_fail_3:
   if (mcs_dev->vmem_bar0 != NULL) {
@@ -248,6 +314,13 @@ static void DEVEXIT_MARK mcs9835_remove(struct pci_dev *dev)
   mcs_dev = pci_get_drvdata(dev);
   if ( (mcs_dev != NULL) &&
        (mcs_dev-> init_done) ) {
+
+    /* Remove character devices */
+    mcs9835_cdev_destroy(mcs_dev, MCS9835_CDEV_IDX_UART_A);
+    mcs9835_cdev_destroy(mcs_dev, MCS9835_CDEV_IDX_UART_B);
+    mcs9835_cdev_destroy(mcs_dev, MCS9835_CDEV_IDX_PARPORT);
+    mcs9835_cdev_finalize(mcs_dev);
+
     /* Unmap all BARs */
     pci_iounmap(dev, mcs_dev->vmem_bar0);
     pci_iounmap(dev, mcs_dev->vmem_bar1);
@@ -270,9 +343,70 @@ static void DEVEXIT_MARK mcs9835_remove(struct pci_dev *dev)
 
 /****************************************************************************
  *
+ * File operation functions
+ *
+ ****************************************************************************/
+
+/****************************************************************************/
+
+static int mcs9835_open_parport(struct inode *inode, 
+				struct file  *file)
+{
+  struct mcs9835_dev *mcs_dev = NULL;
+
+  /* Get device private data */
+  mcs_dev = container_of(inode->i_cdev, 
+			 struct mcs9835_dev, 
+			 chr[MCS9835_CDEV_IDX_PARPORT].cdev);
+  if (mcs_dev == NULL) {    
+    return -ENODEV;
+  }
+
+  /* Store device data for other methods */
+  file->private_data = mcs_dev;
+
+  LOG(MCS_CDV, "open /dev/%s_%d_%d\n",
+      DRV_NAME, mcs_dev->dev_idx, MCS9835_CDEV_IDX_PARPORT);
+
+  return 0;
+}
+
+/****************************************************************************/
+
+static int mcs9835_close_parport(struct inode *inode, 
+				 struct file  *file)
+{
+  struct mcs9835_dev *mcs_dev = NULL;
+
+  /* Get device private data */
+  mcs_dev = file->private_data;
+  if (mcs_dev == NULL) {    
+    return -ENODEV;
+  }
+
+  LOG(MCS_CDV, "close /dev/%s_%d_%d\n",
+      DRV_NAME, mcs_dev->dev_idx, MCS9835_CDEV_IDX_PARPORT);
+
+  return 0;
+}
+
+/****************************************************************************/
+
+static ssize_t mcs9835_read_parport(const struct file *file,
+				    const char __user *buf, 
+				    size_t count,
+				    loff_t *pos)
+{
+  return 0;
+}
+
+/****************************************************************************
+ *
  * Module load/unload functions
  *
  ****************************************************************************/
+module_init(mcs9835_initialize);
+module_exit(mcs9835_finalize);
 
 /****************************************************************************/
 
@@ -347,6 +481,9 @@ static void __exit mcs9835_finalize(void)
 
 static void initialize_dev_data(struct mcs9835_dev *dev)
 {
+  int i;
+
+  /* PCI */
   dev->pci_dev = NULL;
 
   dev->vmem_bar0 = NULL;
@@ -354,6 +491,14 @@ static void initialize_dev_data(struct mcs9835_dev *dev)
   dev->vmem_bar2 = NULL;
   dev->vmem_bar3 = NULL;
 
+  /* Character devices */
+  dev->class = NULL;
+  for (i=0; i < MCS9835_MAX_CDEVS; i++) {
+    memset(&dev->chr[i], 0, sizeof(struct mcs9835_char));   
+  }
+
+  /* Misc */
+  dev->dev_idx   = 0;
   dev->init_done = 0;
 }
 
