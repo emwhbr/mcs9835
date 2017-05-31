@@ -14,8 +14,17 @@
 #ifndef __MCS9835_HW_H__
 #define __MCS9835_HW_H__
 
-/* PCI */
+/*
+ * PCI
+ */
 #define MCS9835_VENDOR_ID  PCI_VENDOR_ID_NETMOS
 #define MCS9835_DEVICE_ID  PCI_DEVICE_ID_NETMOS_9835
+
+/*
+ * Parallel port registers (BAR2 offset)
+ */
+#define MCS9835_PARPORT_REG_DPR  0x00
+#define MCS9835_PARPORT_REG_DSR  0x01
+#define MCS9835_PARPORT_REG_DCR  0x02
 
 #endif /* __MCS9835_HW_H__ */

@@ -19,6 +19,7 @@
 #include <linux/version.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
+#include <asm/uaccess.h>
 
 #include "mcs9835.h"
 #include "mcs9835_product_info.h"
@@ -76,10 +77,23 @@ static ssize_t mcs9835_read_parport(const struct file *file,
 				    size_t count,
 				    loff_t *pos);
 
+static ssize_t mcs9835_write_parport(const struct file *file,
+				     const char __user *buf, 
+				    size_t count,
+				    loff_t *pos);
+
 static int __init mcs9835_initialize(void);
 static void __exit mcs9835_finalize(void);
 
 static void initialize_dev_data(struct mcs9835_dev *dev);
+
+static void parport_write_reg(struct mcs9835_dev *dev,
+			      unsigned bar_offset,
+			      u8 value);
+
+static u8 parport_read_reg(struct mcs9835_dev *dev,
+			   unsigned bar_offset);
+
 static void dump_dev_registers(struct mcs9835_dev *dev);
 
 /****************************************************************************
@@ -114,6 +128,7 @@ struct file_operations mcs9835_fops_parport = {
   .open    = mcs9835_open_parport,
   .release = mcs9835_close_parport,
   .read    = (void *)mcs9835_read_parport,
+  .write   = (void *)mcs9835_write_parport,
 };
 
 /****************************************************************************
@@ -232,7 +247,7 @@ static int DEVINIT_MARK mcs9835_probe(struct pci_dev *dev,
     goto probe_fail_4;
   }
 
-  /* Add character device UART-A */
+  /* Add character device UART-B */
   rc = mcs9835_cdev_create(mcs_dev,
 			   mcs9835_dev_idx,
 			   MCS9835_CDEV_IDX_UART_B,
@@ -354,11 +369,18 @@ static int mcs9835_open_parport(struct inode *inode,
 {
   struct mcs9835_dev *mcs_dev = NULL;
 
-  /* Get device private data */
+  /*
+   * Get device private data
+   * and check that device is ok.
+   */
   mcs_dev = container_of(inode->i_cdev, 
 			 struct mcs9835_dev, 
 			 chr[MCS9835_CDEV_IDX_PARPORT].cdev);
   if (mcs_dev == NULL) {    
+    return -ENODEV;
+  }
+
+  if (!mcs_dev->init_done) {
     return -ENODEV;
   }
 
@@ -397,7 +419,62 @@ static ssize_t mcs9835_read_parport(const struct file *file,
 				    size_t count,
 				    loff_t *pos)
 {
-  return 0;
+  struct mcs9835_dev *mcs_dev = NULL;
+  u8 data;
+
+  /* Get device private data */
+  mcs_dev = file->private_data;
+  if (mcs_dev == NULL) {    
+    return -ENODEV;
+  }
+
+  /* Check user input */
+  if (count != 1) {
+    return -EINVAL;
+  }
+
+  /* Read data from port */
+  data = parport_read_reg(mcs_dev, MCS9835_PARPORT_REG_DSR);
+
+  /* Return data to user */
+  if (copy_to_user((u8 *)buf, &data, 1)) {
+    return -EFAULT;
+  }
+
+  return 1;
+}
+
+/****************************************************************************/
+
+static ssize_t mcs9835_write_parport(const struct file *file,
+				     const char __user *buf, 
+				     size_t count,
+				     loff_t *pos)
+{
+  struct mcs9835_dev *mcs_dev = NULL;
+  u8 data;
+
+  /* Get device private data */
+  mcs_dev = file->private_data;
+  if (mcs_dev == NULL) {    
+    return -ENODEV;
+  }
+
+  /* Check user input */
+  if (count != 1) {
+    return -EINVAL;
+  }
+  
+  /* Get data from user */
+  if (copy_from_user(&data, (u8 *)buf, 1)) {
+    return -EFAULT;
+  }
+
+  /* Write data to port */
+  parport_write_reg(mcs_dev,
+		    MCS9835_PARPORT_REG_DPR,
+		    data);
+  return 1;
 }
 
 /****************************************************************************
@@ -501,6 +578,34 @@ static void initialize_dev_data(struct mcs9835_dev *dev)
   dev->dev_idx   = 0;
   dev->init_done = 0;
 }
+
+/****************************************************************************/
+
+static void parport_write_reg(struct mcs9835_dev *dev,
+			      unsigned bar_offset,
+			      u8 value)
+{
+  LOG(MCS_REG, "PARPORT[%u] <- 0x%02x\n", bar_offset, value);
+
+  /* Parallel port is at BAR2 */
+  iowrite8(value, dev->vmem_bar2 + bar_offset);
+}
+
+/****************************************************************************/
+
+static u8 parport_read_reg(struct mcs9835_dev *dev,
+			   unsigned bar_offset)
+{
+  u8 value;
+
+  /* Parallel port is at BAR2 */
+  value = ioread8(dev->vmem_bar2 + bar_offset);
+
+  LOG(MCS_REG, "PARPORT[%u] -> 0x%02x\n", bar_offset, value);
+
+  return value;
+}
+
 
 /****************************************************************************/
 

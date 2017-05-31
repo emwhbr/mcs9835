@@ -51,10 +51,10 @@ struct mcs9835_dev {
   /* PCI */
   struct pci_dev *pci_dev;
 
-  void __iomem *vmem_bar0;
-  void __iomem *vmem_bar1;
-  void __iomem *vmem_bar2;
-  void __iomem *vmem_bar3;
+  void __iomem *vmem_bar0; /* UART-A             */
+  void __iomem *vmem_bar1; /* UART-B             */
+  void __iomem *vmem_bar2; /* Parallel port      */
+  void __iomem *vmem_bar3; /* Config A/B and ECR */
 
   /* Character devices */
   struct class *class;
